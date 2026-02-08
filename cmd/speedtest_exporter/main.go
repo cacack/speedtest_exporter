@@ -3,13 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
-	"github.com/danopstech/speedtest_exporter/internal/exporter"
+	"github.com/cacack/speedtest_exporter/internal/exporter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -60,5 +61,9 @@ func main() {
 		MaxRequestsInFlight: 1,
 		Timeout:             60 * time.Second,
 	}))
-	log.Fatal(http.ListenAndServe(":"+*port, nil))
+
+	if err := http.ListenAndServe(":"+*port, nil); err != nil {
+		slog.Error("server failed", "error", err)
+		os.Exit(1)
+	}
 }
