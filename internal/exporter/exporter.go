@@ -2,12 +2,12 @@ package exporter
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/showwin/speedtest-go/speedtest"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,6 +50,7 @@ var (
 type Exporter struct {
 	serverID       int
 	serverFallback bool
+	client         *speedtest.Speedtest
 }
 
 // New returns an initialized Exporter.
@@ -57,6 +58,7 @@ func New(serverID int, serverFallback bool) (*Exporter, error) {
 	return &Exporter{
 		serverID:       serverID,
 		serverFallback: serverFallback,
+		client:         speedtest.New(),
 	}, nil
 }
 
@@ -94,36 +96,35 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (e *Exporter) speedtest(testUUID string, ch chan<- prometheus.Metric) bool {
-	user, err := speedtest.FetchUserInfo()
+	user, err := e.client.FetchUserInfo()
 	if err != nil {
-		log.Errorf("could not fetch user information: %s", err.Error())
+		slog.Error("could not fetch user information", "error", err)
 		return false
 	}
 
-	// returns list of servers in distance order
-	serverList, err := speedtest.FetchServerList(user)
+	servers, err := e.client.FetchServers()
 	if err != nil {
-		log.Errorf("could not fetch server list: %s", err.Error())
+		slog.Error("could not fetch server list", "error", err)
 		return false
 	}
 
 	var server *speedtest.Server
 
 	if e.serverID == -1 {
-		server = serverList.Servers[0]
-	} else {
-		servers, err := serverList.FindServer([]int{e.serverID})
-		if err != nil {
-			log.Error(err)
-			return false
-		}
-
-		if servers[0].ID != fmt.Sprintf("%d", e.serverID) && !e.serverFallback {
-			log.Errorf("could not find your choosen server ID %d in the list of avaiable servers, server_fallback is not set so failing this test", e.serverID)
-			return false
-		}
-
 		server = servers[0]
+	} else {
+		targets, err := servers.FindServer([]int{e.serverID})
+		if err != nil {
+			slog.Error("could not find server", "error", err)
+			return false
+		}
+
+		if targets[0].ID != fmt.Sprintf("%d", e.serverID) && !e.serverFallback {
+			slog.Error("could not find chosen server ID in available servers, server_fallback is not set so failing this test", "server_id", e.serverID)
+			return false
+		}
+
+		server = targets[0]
 	}
 
 	ok := pingTest(testUUID, user, server, ch)
@@ -134,9 +135,9 @@ func (e *Exporter) speedtest(testUUID string, ch chan<- prometheus.Metric) bool 
 }
 
 func pingTest(testUUID string, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := server.PingTest()
+	err := server.PingTest(nil)
 	if err != nil {
-		log.Errorf("failed to carry out ping test: %s", err.Error())
+		slog.Error("failed to carry out ping test", "error", err)
 		return false
 	}
 
@@ -159,14 +160,14 @@ func pingTest(testUUID string, user *speedtest.User, server *speedtest.Server, c
 }
 
 func downloadTest(testUUID string, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := server.DownloadTest(false)
+	err := server.DownloadTest()
 	if err != nil {
-		log.Errorf("failed to carry out download test: %s", err.Error())
+		slog.Error("failed to carry out download test", "error", err)
 		return false
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		download, prometheus.GaugeValue, server.DLSpeed*1024*1024,
+		download, prometheus.GaugeValue, float64(server.DLSpeed),
 		testUUID,
 		user.Lat,
 		user.Lon,
@@ -184,14 +185,14 @@ func downloadTest(testUUID string, user *speedtest.User, server *speedtest.Serve
 }
 
 func uploadTest(testUUID string, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := server.UploadTest(false)
+	err := server.UploadTest()
 	if err != nil {
-		log.Errorf("failed to carry out upload test: %s", err.Error())
+		slog.Error("failed to carry out upload test", "error", err)
 		return false
 	}
 
 	ch <- prometheus.MustNewConstMetric(
-		upload, prometheus.GaugeValue, server.ULSpeed*1024*1024,
+		upload, prometheus.GaugeValue, float64(server.ULSpeed),
 		testUUID,
 		user.Lat,
 		user.Lon,
