@@ -42,7 +42,7 @@ func newHealthHandler(url string) http.HandlerFunc {
 			_, _ = fmt.Fprint(w, "No Internet Connection")
 			return
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, "OK")
 	}
@@ -69,7 +69,13 @@ func main() {
 		Timeout:             60 * time.Second,
 	}))
 
-	if err := http.ListenAndServe(":"+*port, nil); err != nil {
+	srv := &http.Server{
+		Addr:         ":" + *port,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 70 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		slog.Error("server failed", "error", err)
 		os.Exit(1)
 	}

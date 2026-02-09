@@ -162,6 +162,10 @@ func (e *Exporter) speedtest(testUUID string, ch chan<- prometheus.Metric) bool 
 
 // selectServer picks a server based on the exporter configuration.
 func (e *Exporter) selectServer(servers speedtest.Servers) (*speedtest.Server, error) {
+	if len(servers) == 0 {
+		return nil, fmt.Errorf("no servers available")
+	}
+
 	if e.serverID == -1 {
 		return servers[0], nil
 	}
@@ -170,6 +174,11 @@ func (e *Exporter) selectServer(servers speedtest.Servers) (*speedtest.Server, e
 	if err != nil {
 		slog.Error("could not find server", "error", err)
 		return nil, err
+	}
+
+	if len(targets) == 0 {
+		slog.Error("no matching servers returned", "server_id", e.serverID)
+		return nil, fmt.Errorf("no servers returned for ID %d", e.serverID)
 	}
 
 	if targets[0].ID != fmt.Sprintf("%d", e.serverID) && !e.serverFallback {
