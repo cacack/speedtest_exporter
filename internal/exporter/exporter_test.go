@@ -86,8 +86,8 @@ func newTestServer(id string) *speedtest.Server {
 func newTestRunner() *mockRunner {
 	return &mockRunner{
 		latency: 10 * time.Millisecond,
-		dlSpeed: 100000000, // 100 MB/s
-		ulSpeed: 50000000,  // 50 MB/s
+		dlSpeed: 100000000, // 100,000,000 B/s (~800 Mbps)
+		ulSpeed: 50000000,  // 50,000,000 B/s (~400 Mbps)
 	}
 }
 
@@ -198,6 +198,23 @@ func TestCollect_Success(t *testing.T) {
 	d := metricToDTO(upMetric)
 	if got := d.GetGauge().GetValue(); got != 1.0 {
 		t.Errorf("expected up=1.0, got %f", got)
+	}
+
+	// Verify speed metrics pass through bytes/sec values from speedtest-go unchanged.
+	dlMetric := findMetricByName(metrics, "speedtest_download_speed_Bps")
+	if dlMetric == nil {
+		t.Fatal("speedtest_download_speed_Bps metric not found")
+	}
+	if got := metricToDTO(dlMetric).GetGauge().GetValue(); got != float64(runner.dlSpeed) {
+		t.Errorf("expected download=%f, got %f", float64(runner.dlSpeed), got)
+	}
+
+	ulMetric := findMetricByName(metrics, "speedtest_upload_speed_Bps")
+	if ulMetric == nil {
+		t.Fatal("speedtest_upload_speed_Bps metric not found")
+	}
+	if got := metricToDTO(ulMetric).GetGauge().GetValue(); got != float64(runner.ulSpeed) {
+		t.Errorf("expected upload=%f, got %f", float64(runner.ulSpeed), got)
 	}
 }
 
