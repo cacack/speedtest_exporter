@@ -1,0 +1,8 @@
+linters:
+  enable:
+    - bodyclose
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - misspell

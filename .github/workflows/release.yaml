@@ -26,6 +26,14 @@ jobs:
         with:
           go-version: stable
 
+      - name: Run tests
+        run: make test-race
+
+      - name: Check vulnerabilities
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make vuln
+
       - name: Lint
         uses: golangci/golangci-lint-action@v7
 

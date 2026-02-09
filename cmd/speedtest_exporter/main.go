@@ -17,6 +17,37 @@ const (
 	metricsPath = "/metrics"
 )
 
+func rootHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html>
+             <head><title>Speedtest Exporter</title></head>
+             <body>
+             <h1>Speedtest Exporter</h1>
+             <p>Metrics page will take approx 40 seconds to load and show results, as the exporter carries out a speedtest when scraped.</p>
+             <p><a href='` + metricsPath + `'>Metrics</a></p>
+             <p><a href='/health'>Health</a></p>
+             </body>
+             </html>`))
+	}
+}
+
+func newHealthHandler(url string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		client := http.Client{
+			Timeout: 3 * time.Second,
+		}
+		resp, err := client.Get(url)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = fmt.Fprint(w, "No Internet Connection")
+			return
+		}
+		resp.Body.Close()
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, "OK")
+	}
+}
+
 func main() {
 	port := flag.String("port", "9090", "listening port to expose metrics on")
 	serverID := flag.Int("server_id", -1, "Speedtest.net server ID to run test against, -1 will pick the closest server to your location")
@@ -31,32 +62,8 @@ func main() {
 	r := prometheus.NewRegistry()
 	r.MustRegister(exporter)
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`<html>
-             <head><title>Speedtest Exporter</title></head>
-             <body>
-             <h1>Speedtest Exporter</h1>
-             <p>Metrics page will take approx 40 seconds to load and show results, as the exporter carries out a speedtest when scraped.</p>
-             <p><a href='` + metricsPath + `'>Metrics</a></p>
-             <p><a href='/health'>Health</a></p>
-             </body>
-             </html>`))
-	})
-
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		client := http.Client{
-			Timeout: 3 * time.Second,
-		}
-		_, err := client.Get("https://clients3.google.com/generate_204")
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = fmt.Fprint(w, "No Internet Connection")
-		} else {
-			w.WriteHeader(http.StatusOK)
-			_, _ = fmt.Fprint(w, "OK")
-		}
-	})
-
+	http.HandleFunc("/", rootHandler())
+	http.HandleFunc("/health", newHealthHandler("https://clients3.google.com/generate_204"))
 	http.Handle(metricsPath, promhttp.HandlerFor(r, promhttp.HandlerOpts{
 		MaxRequestsInFlight: 1,
 		Timeout:             60 * time.Second,
