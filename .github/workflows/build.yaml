@@ -22,6 +22,12 @@ jobs:
         with:
           go-version: stable
 
+      - name: Check formatting
+        run: make fmt-check
+
+      - name: Check module tidiness
+        run: make tidy-check
+
       - name: Run tests
         run: make test-race
 

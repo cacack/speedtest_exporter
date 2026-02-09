@@ -1,8 +1,13 @@
+version: "2"
+
 linters:
   enable:
     - bodyclose
     - gocritic
-    - gofmt
-    - goimports
     - gosec
     - misspell
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
