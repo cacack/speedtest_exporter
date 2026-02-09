@@ -9,17 +9,18 @@ Prometheus exporter for Speedtest.net results, written in Go 1.25. Exports downl
 ## Build & Development Commands
 
 ```bash
-# Build
-go build -o speedtest_exporter ./cmd/speedtest_exporter/main.go
+# Run all quality checks (fmt, tidy, lint, vuln, test-race, build)
+make all
 
-# Test
-go test ./...
-
-# Lint (used in CI)
-golangci-lint run
-
-# Tidy modules
-go mod tidy
+# Individual targets
+make build          # Build binary
+make test           # Run tests
+make test-race      # Run tests with race detector
+make lint           # Run golangci-lint
+make vuln           # Run govulncheck
+make fmt-check      # Check gofmt compliance
+make tidy-check     # Verify go.mod/go.sum are tidy
+make clean          # Remove build artifacts
 
 # Build release snapshot (local multi-platform build)
 goreleaser release --snapshot --clean
