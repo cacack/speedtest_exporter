@@ -303,6 +303,34 @@ func TestSelectServer_FallbackEnabled(t *testing.T) {
 	}
 }
 
+func TestSelectServer_EmptyServers(t *testing.T) {
+	servers := speedtest.Servers{}
+	e := NewWithDeps(-1, false, &mockClient{}, &mockRunner{})
+
+	_, err := e.selectServer(servers)
+	if err == nil {
+		t.Fatal("expected error for empty server list")
+	}
+}
+
+func TestCollect_EmptyServerList(t *testing.T) {
+	client := &mockClient{
+		user:    newTestUser(),
+		servers: speedtest.Servers{},
+	}
+	e := NewWithDeps(-1, false, client, newTestRunner())
+
+	metrics := collectMetrics(e)
+
+	if got := len(metrics); got != 1 {
+		t.Fatalf("expected 1 metric, got %d", got)
+	}
+	d := metricToDTO(metrics[0])
+	if got := d.GetGauge().GetValue(); got != 0.0 {
+		t.Errorf("expected up=0.0, got %f", got)
+	}
+}
+
 func TestSelectServer_FallbackDisabled(t *testing.T) {
 	// Request server 999 which doesn't exist; fallback=false should error.
 	servers := speedtest.Servers{
