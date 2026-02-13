@@ -31,18 +31,8 @@ func rootHandler() http.HandlerFunc {
 	}
 }
 
-func newHealthHandler(url string) http.HandlerFunc {
+func healthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		client := http.Client{
-			Timeout: 3 * time.Second,
-		}
-		resp, err := client.Get(url)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = fmt.Fprint(w, "No Internet Connection")
-			return
-		}
-		_ = resp.Body.Close()
 		w.WriteHeader(http.StatusOK)
 		_, _ = fmt.Fprint(w, "OK")
 	}
@@ -63,7 +53,7 @@ func main() {
 	r.MustRegister(exporter)
 
 	http.HandleFunc("/", rootHandler())
-	http.HandleFunc("/health", newHealthHandler("https://clients3.google.com/generate_204"))
+	http.HandleFunc("/health", healthHandler())
 	http.Handle(metricsPath, promhttp.HandlerFor(r, promhttp.HandlerOpts{
 		MaxRequestsInFlight: 1,
 		Timeout:             60 * time.Second,
