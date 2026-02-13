@@ -2,7 +2,6 @@ package exporter
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -467,7 +466,7 @@ func TestCollect_MetricLabels(t *testing.T) {
 		"server_id":      "100",
 		"server_name":    "TestServer",
 		"server_country": "US",
-		"distance":       fmt.Sprintf("%f", 123.456),
+		"distance":       "123",
 	}
 	for k, want := range expectedLabels {
 		if got, exists := labelMap[k]; !exists {
