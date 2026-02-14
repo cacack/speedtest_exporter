@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -19,11 +20,11 @@ type mockClient struct {
 	serversErr error
 }
 
-func (m *mockClient) FetchUserInfo() (*speedtest.User, error) {
+func (m *mockClient) FetchUserInfo(_ context.Context) (*speedtest.User, error) {
 	return m.user, m.userErr
 }
 
-func (m *mockClient) FetchServers() (speedtest.Servers, error) {
+func (m *mockClient) FetchServers(_ context.Context) (speedtest.Servers, error) {
 	return m.servers, m.serversErr
 }
 
@@ -38,7 +39,7 @@ type mockRunner struct {
 	ulSpeed speedtest.ByteRate
 }
 
-func (m *mockRunner) PingTest(server *speedtest.Server) error {
+func (m *mockRunner) PingTest(_ context.Context, server *speedtest.Server) error {
 	if m.pingErr != nil {
 		return m.pingErr
 	}
@@ -46,7 +47,7 @@ func (m *mockRunner) PingTest(server *speedtest.Server) error {
 	return nil
 }
 
-func (m *mockRunner) DownloadTest(server *speedtest.Server) error {
+func (m *mockRunner) DownloadTest(_ context.Context, server *speedtest.Server) error {
 	if m.downloadErr != nil {
 		return m.downloadErr
 	}
@@ -54,7 +55,7 @@ func (m *mockRunner) DownloadTest(server *speedtest.Server) error {
 	return nil
 }
 
-func (m *mockRunner) UploadTest(server *speedtest.Server) error {
+func (m *mockRunner) UploadTest(_ context.Context, server *speedtest.Server) error {
 	if m.uploadErr != nil {
 		return m.uploadErr
 	}
@@ -474,5 +475,64 @@ func TestCollect_MetricLabels(t *testing.T) {
 		} else if got != want {
 			t.Errorf("label %q: got %q, want %q", k, got, want)
 		}
+	}
+}
+
+// ctxAwareRunner is a mock runner that checks ctx.Err() before proceeding.
+type ctxAwareRunner struct {
+	mockRunner
+}
+
+func (m *ctxAwareRunner) PingTest(ctx context.Context, server *speedtest.Server) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.mockRunner.PingTest(ctx, server)
+}
+
+func (m *ctxAwareRunner) DownloadTest(ctx context.Context, server *speedtest.Server) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.mockRunner.DownloadTest(ctx, server)
+}
+
+func (m *ctxAwareRunner) UploadTest(ctx context.Context, server *speedtest.Server) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return m.mockRunner.UploadTest(ctx, server)
+}
+
+func TestCollect_ContextCancellation(t *testing.T) {
+	client := &mockClient{
+		user:    newTestUser(),
+		servers: speedtest.Servers{newTestServer("100")},
+	}
+	runner := &ctxAwareRunner{
+		mockRunner: *newTestRunner(),
+	}
+	e := NewWithDeps(-1, false, client, runner)
+
+	// Create an already-cancelled context.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := make(chan prometheus.Metric, 100)
+	e.CollectWithContext(ctx, ch)
+	close(ch)
+
+	var metrics []prometheus.Metric
+	for m := range ch {
+		metrics = append(metrics, m)
+	}
+
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	d := metricToDTO(upMetric)
+	if got := d.GetGauge().GetValue(); got != 0.0 {
+		t.Errorf("expected up=0.0 for cancelled context, got %f", got)
 	}
 }

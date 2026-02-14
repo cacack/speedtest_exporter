@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/cacack/speedtest_exporter/internal/exporter"
@@ -38,23 +42,43 @@ func healthHandler() http.HandlerFunc {
 	}
 }
 
+// contextCollector bridges prometheus.Collector with context-aware collection.
+type contextCollector struct {
+	e   *exporter.Exporter
+	ctx context.Context
+}
+
+func (c *contextCollector) Describe(ch chan<- *prometheus.Desc) { c.e.Describe(ch) }
+func (c *contextCollector) Collect(ch chan<- prometheus.Metric) { c.e.CollectWithContext(c.ctx, ch) }
+
+// metricsHandler returns an HTTP handler that passes request context to the exporter.
+func metricsHandler(e *exporter.Exporter) http.Handler {
+	// Use a TryLock to limit to 1 concurrent scrape (replaces promhttp MaxRequestsInFlight).
+	var mu sync.Mutex
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !mu.TryLock() {
+			http.Error(w, "Scrape already in progress", http.StatusServiceUnavailable)
+			return
+		}
+		defer mu.Unlock()
+
+		reg := prometheus.NewRegistry()
+		reg.MustRegister(&contextCollector{e: e, ctx: r.Context()})
+		promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	port := flag.String("port", "9090", "listening port to expose metrics on")
 	serverID := flag.Int("server_id", -1, "Speedtest.net server ID to run test against, -1 will pick the closest server to your location")
 	serverFallback := flag.Bool("server_fallback", false, "If the server_id given is not available, should we fallback to closest available server")
 	flag.Parse()
 
-	exporter := exporter.New(*serverID, *serverFallback)
-
-	r := prometheus.NewRegistry()
-	r.MustRegister(exporter)
+	exp := exporter.New(*serverID, *serverFallback)
 
 	http.HandleFunc("/", rootHandler())
 	http.HandleFunc("/health", healthHandler())
-	http.Handle(metricsPath, promhttp.HandlerFor(r, promhttp.HandlerOpts{
-		MaxRequestsInFlight: 1,
-		Timeout:             60 * time.Second,
-	}))
+	http.Handle(metricsPath, metricsHandler(exp))
 
 	srv := &http.Server{
 		Addr:         ":" + *port,
@@ -62,8 +86,29 @@ func main() {
 		WriteTimeout: 70 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	if err := srv.ListenAndServe(); err != nil {
-		slog.Error("server failed", "error", err)
-		os.Exit(1)
+
+	// Create context that cancels on SIGTERM/SIGINT.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
+
+	// Start server in goroutine.
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	slog.Info("server started", "port", *port)
+
+	// Wait for shutdown signal.
+	<-ctx.Done()
+	slog.Info("shutting down server")
+
+	// Give in-flight requests time to complete.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 70*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("server shutdown error", "error", err)
 	}
 }

@@ -1,6 +1,7 @@
 package exporter
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -46,30 +47,43 @@ var (
 
 // SpeedtestClient abstracts the speedtest-go client.
 type SpeedtestClient interface {
-	FetchUserInfo() (*speedtest.User, error)
-	FetchServers() (speedtest.Servers, error)
+	FetchUserInfo(ctx context.Context) (*speedtest.User, error)
+	FetchServers(ctx context.Context) (speedtest.Servers, error)
 }
 
 // ServerRunner abstracts speed test execution on a server.
 type ServerRunner interface {
-	PingTest(server *speedtest.Server) error
-	DownloadTest(server *speedtest.Server) error
-	UploadTest(server *speedtest.Server) error
+	PingTest(ctx context.Context, server *speedtest.Server) error
+	DownloadTest(ctx context.Context, server *speedtest.Server) error
+	UploadTest(ctx context.Context, server *speedtest.Server) error
 }
 
 // defaultRunner calls the real speedtest server methods.
 type defaultRunner struct{}
 
-func (d *defaultRunner) PingTest(server *speedtest.Server) error {
-	return server.PingTest(nil)
+func (d *defaultRunner) PingTest(ctx context.Context, server *speedtest.Server) error {
+	return server.PingTestContext(ctx, nil)
 }
 
-func (d *defaultRunner) DownloadTest(server *speedtest.Server) error {
-	return server.DownloadTest()
+func (d *defaultRunner) DownloadTest(ctx context.Context, server *speedtest.Server) error {
+	return server.DownloadTestContext(ctx)
 }
 
-func (d *defaultRunner) UploadTest(server *speedtest.Server) error {
-	return server.UploadTest()
+func (d *defaultRunner) UploadTest(ctx context.Context, server *speedtest.Server) error {
+	return server.UploadTestContext(ctx)
+}
+
+// defaultClient wraps speedtest.Speedtest to satisfy SpeedtestClient.
+type defaultClient struct {
+	inner *speedtest.Speedtest
+}
+
+func (d *defaultClient) FetchUserInfo(ctx context.Context) (*speedtest.User, error) {
+	return d.inner.FetchUserInfoContext(ctx)
+}
+
+func (d *defaultClient) FetchServers(ctx context.Context) (speedtest.Servers, error) {
+	return d.inner.FetchServerListContext(ctx)
 }
 
 // Exporter runs speedtest and exports them using
@@ -86,7 +100,7 @@ func New(serverID int, serverFallback bool) *Exporter {
 	return &Exporter{
 		serverID:       serverID,
 		serverFallback: serverFallback,
-		client:         speedtest.New(),
+		client:         &defaultClient{inner: speedtest.New()},
 		runner:         &defaultRunner{},
 	}
 }
@@ -113,8 +127,13 @@ func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
 // Collect fetches the stats from a speedtest and delivers them
 // as Prometheus metrics. It implements prometheus.Collector.
 func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
+	e.CollectWithContext(context.Background(), ch)
+}
+
+// CollectWithContext is like Collect but accepts a context for cancellation.
+func (e *Exporter) CollectWithContext(ctx context.Context, ch chan<- prometheus.Metric) {
 	start := time.Now()
-	ok := e.speedtest(ch)
+	ok := e.speedtest(ctx, ch)
 
 	if ok {
 		ch <- prometheus.MustNewConstMetric(
@@ -130,14 +149,14 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	}
 }
 
-func (e *Exporter) speedtest(ch chan<- prometheus.Metric) bool {
-	user, err := e.client.FetchUserInfo()
+func (e *Exporter) speedtest(ctx context.Context, ch chan<- prometheus.Metric) bool {
+	user, err := e.client.FetchUserInfo(ctx)
 	if err != nil {
 		slog.Error("could not fetch user information", "error", err)
 		return false
 	}
 
-	servers, err := e.client.FetchServers()
+	servers, err := e.client.FetchServers(ctx)
 	if err != nil {
 		slog.Error("could not fetch server list", "error", err)
 		return false
@@ -148,9 +167,9 @@ func (e *Exporter) speedtest(ch chan<- prometheus.Metric) bool {
 		return false
 	}
 
-	ok := e.pingTest(user, server, ch)
-	ok = e.downloadTest(user, server, ch) && ok
-	ok = e.uploadTest(user, server, ch) && ok
+	ok := e.pingTest(ctx, user, server, ch)
+	ok = e.downloadTest(ctx, user, server, ch) && ok
+	ok = e.uploadTest(ctx, user, server, ch) && ok
 
 	return ok
 }
@@ -200,8 +219,8 @@ func labelValues(user *speedtest.User, server *speedtest.Server) []string {
 	}
 }
 
-func (e *Exporter) pingTest(user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := e.runner.PingTest(server)
+func (e *Exporter) pingTest(ctx context.Context, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
+	err := e.runner.PingTest(ctx, server)
 	if err != nil {
 		slog.Error("failed to carry out ping test", "error", err)
 		return false
@@ -215,8 +234,8 @@ func (e *Exporter) pingTest(user *speedtest.User, server *speedtest.Server, ch c
 	return true
 }
 
-func (e *Exporter) downloadTest(user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := e.runner.DownloadTest(server)
+func (e *Exporter) downloadTest(ctx context.Context, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
+	err := e.runner.DownloadTest(ctx, server)
 	if err != nil {
 		slog.Error("failed to carry out download test", "error", err)
 		return false
@@ -230,8 +249,8 @@ func (e *Exporter) downloadTest(user *speedtest.User, server *speedtest.Server, 
 	return true
 }
 
-func (e *Exporter) uploadTest(user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := e.runner.UploadTest(server)
+func (e *Exporter) uploadTest(ctx context.Context, user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
+	err := e.runner.UploadTest(ctx, server)
 	if err != nil {
 		slog.Error("failed to carry out upload test", "error", err)
 		return false
