@@ -80,7 +80,7 @@ scrape_configs
 # TYPE speedtest_download_speed_Bps gauge
 # HELP speedtest_latency_seconds Measured latency on last speed test
 # TYPE speedtest_latency_seconds gauge
-# HELP speedtest_scrape_duration_seconds Time to preform last speed test
+# HELP speedtest_scrape_duration_seconds Time to perform last speed test
 # TYPE speedtest_scrape_duration_seconds gauge
 # HELP speedtest_up Was the last speedtest successful.
 # TYPE speedtest_up gauge
