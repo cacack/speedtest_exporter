@@ -82,13 +82,13 @@ type Exporter struct {
 }
 
 // New returns an initialized Exporter.
-func New(serverID int, serverFallback bool) (*Exporter, error) {
+func New(serverID int, serverFallback bool) *Exporter {
 	return &Exporter{
 		serverID:       serverID,
 		serverFallback: serverFallback,
 		client:         speedtest.New(),
 		runner:         &defaultRunner{},
-	}, nil
+	}
 }
 
 // NewWithDeps returns an Exporter with injected dependencies for testing.
@@ -184,15 +184,9 @@ func (e *Exporter) selectServer(servers speedtest.Servers) (*speedtest.Server, e
 	return targets[0], nil
 }
 
-func (e *Exporter) pingTest(user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
-	err := e.runner.PingTest(server)
-	if err != nil {
-		slog.Error("failed to carry out ping test", "error", err)
-		return false
-	}
-
-	ch <- prometheus.MustNewConstMetric(
-		latency, prometheus.GaugeValue, server.Latency.Seconds(),
+// labelValues returns the common label values for speedtest metrics.
+func labelValues(user *speedtest.User, server *speedtest.Server) []string {
+	return []string{
 		user.Lat,
 		user.Lon,
 		user.IP,
@@ -203,6 +197,19 @@ func (e *Exporter) pingTest(user *speedtest.User, server *speedtest.Server, ch c
 		server.Name,
 		server.Country,
 		fmt.Sprintf("%.0f", server.Distance),
+	}
+}
+
+func (e *Exporter) pingTest(user *speedtest.User, server *speedtest.Server, ch chan<- prometheus.Metric) bool {
+	err := e.runner.PingTest(server)
+	if err != nil {
+		slog.Error("failed to carry out ping test", "error", err)
+		return false
+	}
+
+	ch <- prometheus.MustNewConstMetric(
+		latency, prometheus.GaugeValue, server.Latency.Seconds(),
+		labelValues(user, server)...,
 	)
 
 	return true
@@ -217,16 +224,7 @@ func (e *Exporter) downloadTest(user *speedtest.User, server *speedtest.Server, 
 
 	ch <- prometheus.MustNewConstMetric(
 		download, prometheus.GaugeValue, float64(server.DLSpeed),
-		user.Lat,
-		user.Lon,
-		user.IP,
-		user.Isp,
-		server.Lat,
-		server.Lon,
-		server.ID,
-		server.Name,
-		server.Country,
-		fmt.Sprintf("%.0f", server.Distance),
+		labelValues(user, server)...,
 	)
 
 	return true
@@ -241,16 +239,7 @@ func (e *Exporter) uploadTest(user *speedtest.User, server *speedtest.Server, ch
 
 	ch <- prometheus.MustNewConstMetric(
 		upload, prometheus.GaugeValue, float64(server.ULSpeed),
-		user.Lat,
-		user.Lon,
-		user.IP,
-		user.Isp,
-		server.Lat,
-		server.Lon,
-		server.ID,
-		server.Name,
-		server.Country,
-		fmt.Sprintf("%.0f", server.Distance),
+		labelValues(user, server)...,
 	)
 
 	return true
