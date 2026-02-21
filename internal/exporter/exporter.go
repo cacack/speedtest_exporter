@@ -89,16 +89,16 @@ func (d *defaultClient) FetchServers(ctx context.Context) (speedtest.Servers, er
 // Exporter runs speedtest and exports them using
 // the prometheus metrics package.
 type Exporter struct {
-	serverID       int
+	serverIDs      []int
 	serverFallback bool
 	client         SpeedtestClient
 	runner         ServerRunner
 }
 
 // New returns an initialized Exporter.
-func New(serverID int, serverFallback bool) *Exporter {
+func New(serverIDs []int, serverFallback bool) *Exporter {
 	return &Exporter{
-		serverID:       serverID,
+		serverIDs:      serverIDs,
 		serverFallback: serverFallback,
 		client:         &defaultClient{inner: speedtest.New()},
 		runner:         &defaultRunner{},
@@ -106,9 +106,9 @@ func New(serverID int, serverFallback bool) *Exporter {
 }
 
 // NewWithDeps returns an Exporter with injected dependencies for testing.
-func NewWithDeps(serverID int, serverFallback bool, client SpeedtestClient, runner ServerRunner) *Exporter {
+func NewWithDeps(serverIDs []int, serverFallback bool, client SpeedtestClient, runner ServerRunner) *Exporter {
 	return &Exporter{
-		serverID:       serverID,
+		serverIDs:      serverIDs,
 		serverFallback: serverFallback,
 		client:         client,
 		runner:         runner,
@@ -160,45 +160,59 @@ func (e *Exporter) speedtest(ctx context.Context, ch chan<- prometheus.Metric) b
 		return false
 	}
 
-	server, err := e.selectServer(servers)
+	targets, err := e.selectServers(servers)
 	if err != nil {
 		return false
 	}
 
-	ok := e.pingTest(ctx, user, server, ch)
-	ok = e.downloadTest(ctx, user, server, ch) && ok
-	ok = e.uploadTest(ctx, user, server, ch) && ok
+	allOK := true
+	for _, server := range targets {
+		ok := e.pingTest(ctx, user, server, ch)
+		ok = e.downloadTest(ctx, user, server, ch) && ok
+		ok = e.uploadTest(ctx, user, server, ch) && ok
+		allOK = allOK && ok
+	}
 
-	return ok
+	return allOK
 }
 
-// selectServer picks a server based on the exporter configuration.
-func (e *Exporter) selectServer(servers speedtest.Servers) (*speedtest.Server, error) {
+// selectServers picks servers based on the exporter configuration.
+func (e *Exporter) selectServers(servers speedtest.Servers) (speedtest.Servers, error) {
 	if len(servers) == 0 {
 		return nil, fmt.Errorf("no servers available")
 	}
 
-	if e.serverID == -1 {
-		return servers[0], nil
+	// -1 means use the closest server.
+	if len(e.serverIDs) == 1 && e.serverIDs[0] == -1 {
+		return speedtest.Servers{servers[0]}, nil
 	}
 
-	targets, err := servers.FindServer([]int{e.serverID})
+	targets, err := servers.FindServer(e.serverIDs)
 	if err != nil {
-		slog.Error("could not find server", "error", err)
+		slog.Error("could not find servers", "error", err)
 		return nil, err
 	}
 
 	if len(targets) == 0 {
-		slog.Error("no matching servers returned", "server_id", e.serverID)
-		return nil, fmt.Errorf("no servers returned for ID %d", e.serverID)
+		slog.Error("no matching servers returned", "server_ids", e.serverIDs)
+		return nil, fmt.Errorf("no servers returned for IDs %v", e.serverIDs)
 	}
 
-	if targets[0].ID != fmt.Sprintf("%d", e.serverID) && !e.serverFallback {
-		slog.Error("could not find chosen server ID in available servers, server_fallback is not set so failing this test", "server_id", e.serverID)
-		return nil, fmt.Errorf("server %d not found and fallback disabled", e.serverID)
+	if !e.serverFallback {
+		// Verify all requested IDs appear in results.
+		found := make(map[string]bool)
+		for _, s := range targets {
+			found[s.ID] = true
+		}
+		for _, id := range e.serverIDs {
+			if !found[fmt.Sprintf("%d", id)] {
+				slog.Error("could not find requested server ID, server_fallback is not set so failing", "server_id", id)
+				return nil, fmt.Errorf("server %d not found and fallback disabled", id)
+			}
+		}
 	}
 
-	return targets[0], nil
+	return targets, nil
 }
 
 // labelValues returns the common label values for speedtest metrics.
