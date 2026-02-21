@@ -17,29 +17,29 @@ const (
 var (
 	up = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "up"),
-		"Was the last speedtest successful.",
+		"Whether the last speedtest was successful",
 		nil, nil,
 	)
 	scrapeDurationSeconds = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "scrape_duration_seconds"),
-		"Time to perform last speed test",
+		"Duration of the last speedtest scrape in seconds",
 		nil, nil,
 	)
 	latency = prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "", "latency_seconds"),
-		"Measured latency on last speed test",
+		"Measured latency in seconds from the last speedtest",
 		[]string{"user_lat", "user_lon", "user_ip", "user_isp", "server_lat", "server_lon", "server_id", "server_name", "server_country", "distance"},
 		nil,
 	)
 	upload = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "", "upload_speed_Bps"),
-		"Last upload speedtest result",
+		prometheus.BuildFQName(namespace, "", "upload_speed_bytes_per_second"),
+		"Upload speed in bytes per second from the last speedtest",
 		[]string{"user_lat", "user_lon", "user_ip", "user_isp", "server_lat", "server_lon", "server_id", "server_name", "server_country", "distance"},
 		nil,
 	)
 	download = prometheus.NewDesc(
-		prometheus.BuildFQName(namespace, "", "download_speed_Bps"),
-		"Last download speedtest result",
+		prometheus.BuildFQName(namespace, "", "download_speed_bytes_per_second"),
+		"Download speed in bytes per second from the last speedtest",
 		[]string{"user_lat", "user_lon", "user_ip", "user_isp", "server_lat", "server_lon", "server_id", "server_name", "server_country", "distance"},
 		nil,
 	)
@@ -135,18 +135,16 @@ func (e *Exporter) CollectWithContext(ctx context.Context, ch chan<- prometheus.
 	start := time.Now()
 	ok := e.speedtest(ctx, ch)
 
+	upVal := 0.0
 	if ok {
-		ch <- prometheus.MustNewConstMetric(
-			up, prometheus.GaugeValue, 1.0,
-		)
-		ch <- prometheus.MustNewConstMetric(
-			scrapeDurationSeconds, prometheus.GaugeValue, time.Since(start).Seconds(),
-		)
-	} else {
-		ch <- prometheus.MustNewConstMetric(
-			up, prometheus.GaugeValue, 0.0,
-		)
+		upVal = 1.0
 	}
+	ch <- prometheus.MustNewConstMetric(
+		up, prometheus.GaugeValue, upVal,
+	)
+	ch <- prometheus.MustNewConstMetric(
+		scrapeDurationSeconds, prometheus.GaugeValue, time.Since(start).Seconds(),
+	)
 }
 
 func (e *Exporter) speedtest(ctx context.Context, ch chan<- prometheus.Metric) bool {

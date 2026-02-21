@@ -76,16 +76,16 @@ scrape_configs
 ## Exported Metrics:
 
 ```
-# HELP speedtest_download_speed_Bps Last download speedtest result
-# TYPE speedtest_download_speed_Bps gauge
-# HELP speedtest_latency_seconds Measured latency on last speed test
+# HELP speedtest_download_speed_bytes_per_second Download speed in bytes per second from the last speedtest
+# TYPE speedtest_download_speed_bytes_per_second gauge
+# HELP speedtest_latency_seconds Measured latency in seconds from the last speedtest
 # TYPE speedtest_latency_seconds gauge
-# HELP speedtest_scrape_duration_seconds Time to perform last speed test
+# HELP speedtest_scrape_duration_seconds Duration of the last speedtest scrape in seconds
 # TYPE speedtest_scrape_duration_seconds gauge
-# HELP speedtest_up Was the last speedtest successful.
+# HELP speedtest_up Whether the last speedtest was successful
 # TYPE speedtest_up gauge
-# HELP speedtest_upload_speed_Bps Last upload speedtest result
-# TYPE speedtest_upload_speed_Bps gauge
+# HELP speedtest_upload_speed_bytes_per_second Upload speed in bytes per second from the last speedtest
+# TYPE speedtest_upload_speed_bytes_per_second gauge
 ```
 ## Example Grafana Dashboard:
 
