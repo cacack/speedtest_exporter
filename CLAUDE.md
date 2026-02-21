@@ -35,7 +35,7 @@ Two-package structure:
 
 - **`cmd/speedtest_exporter/main.go`** — HTTP server exposing `/metrics`, `/health`, and `/` endpoints. Registers the custom Prometheus collector. Limits concurrent scrapes to 1 with a 60s timeout since speedtests are slow and resource-intensive.
 
-- **`internal/exporter/exporter.go`** — Implements `prometheus.Collector`. The `Collect()` method runs a full speedtest (ping, download, upload) via `speedtest-go` library and emits 5 gauges (`speedtest_up`, `speedtest_scrape_duration_seconds`, `speedtest_latency_seconds`, `speedtest_download_speed_Bps`, `speedtest_upload_speed_Bps`) with rich labels (user geo/ISP, server geo/id). The speedtest-go API returns bytes/sec directly.
+- **`internal/exporter/exporter.go`** — Implements `prometheus.Collector`. The `Collect()` method runs a full speedtest (ping, download, upload) via `speedtest-go` library and emits 5 gauges (`speedtest_up`, `speedtest_scrape_duration_seconds`, `speedtest_latency_seconds`, `speedtest_download_speed_bytes_per_second`, `speedtest_upload_speed_bytes_per_second`) with rich labels (user geo/ISP, server geo/id). The speedtest-go API returns bytes/sec directly.
 
 ## CI/CD
 

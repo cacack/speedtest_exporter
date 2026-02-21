@@ -116,7 +116,7 @@ func metricToDTO(m prometheus.Metric) *dto.Metric {
 // findMetricByName finds a metric by its fqName in a slice.
 func findMetricByName(metrics []prometheus.Metric, name string) prometheus.Metric {
 	// Desc().String() looks like: Desc{fqName: "speedtest_up", ...}
-	// Use quoted form to avoid partial matches (e.g., "speedtest_up" vs "speedtest_upload_speed_Bps").
+	// Use quoted form to avoid partial matches (e.g., "speedtest_up" vs "speedtest_upload_speed_bytes_per_second").
 	needle := `"` + name + `"`
 	for _, m := range metrics {
 		desc := m.Desc().String()
@@ -159,8 +159,8 @@ func TestDescribe(t *testing.T) {
 		"speedtest_up",
 		"speedtest_scrape_duration_seconds",
 		"speedtest_latency_seconds",
-		"speedtest_upload_speed_Bps",
-		"speedtest_download_speed_Bps",
+		"speedtest_upload_speed_bytes_per_second",
+		"speedtest_download_speed_bytes_per_second",
 	}
 	for _, name := range expected {
 		found := false
@@ -201,17 +201,17 @@ func TestCollect_Success(t *testing.T) {
 	}
 
 	// Verify speed metrics pass through bytes/sec values from speedtest-go unchanged.
-	dlMetric := findMetricByName(metrics, "speedtest_download_speed_Bps")
+	dlMetric := findMetricByName(metrics, "speedtest_download_speed_bytes_per_second")
 	if dlMetric == nil {
-		t.Fatal("speedtest_download_speed_Bps metric not found")
+		t.Fatal("speedtest_download_speed_bytes_per_second metric not found")
 	}
 	if got := metricToDTO(dlMetric).GetGauge().GetValue(); got != float64(runner.dlSpeed) {
 		t.Errorf("expected download=%f, got %f", float64(runner.dlSpeed), got)
 	}
 
-	ulMetric := findMetricByName(metrics, "speedtest_upload_speed_Bps")
+	ulMetric := findMetricByName(metrics, "speedtest_upload_speed_bytes_per_second")
 	if ulMetric == nil {
-		t.Fatal("speedtest_upload_speed_Bps metric not found")
+		t.Fatal("speedtest_upload_speed_bytes_per_second metric not found")
 	}
 	if got := metricToDTO(ulMetric).GetGauge().GetValue(); got != float64(runner.ulSpeed) {
 		t.Errorf("expected upload=%f, got %f", float64(runner.ulSpeed), got)
@@ -226,13 +226,19 @@ func TestCollect_FetchUserInfoError(t *testing.T) {
 
 	metrics := collectMetrics(e)
 
-	// Only the up metric should be emitted.
-	if got := len(metrics); got != 1 {
-		t.Fatalf("expected 1 metric, got %d", got)
+	// up + scrape_duration should always be emitted.
+	if got := len(metrics); got != 2 {
+		t.Fatalf("expected 2 metrics, got %d", got)
 	}
-	d := metricToDTO(metrics[0])
-	if got := d.GetGauge().GetValue(); got != 0.0 {
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	if got := metricToDTO(upMetric).GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
+	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
 	}
 }
 
@@ -245,12 +251,18 @@ func TestCollect_FetchServersError(t *testing.T) {
 
 	metrics := collectMetrics(e)
 
-	if got := len(metrics); got != 1 {
-		t.Fatalf("expected 1 metric, got %d", got)
+	if got := len(metrics); got != 2 {
+		t.Fatalf("expected 2 metrics, got %d", got)
 	}
-	d := metricToDTO(metrics[0])
-	if got := d.GetGauge().GetValue(); got != 0.0 {
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	if got := metricToDTO(upMetric).GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
+	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
 	}
 }
 
@@ -322,12 +334,18 @@ func TestCollect_EmptyServerList(t *testing.T) {
 
 	metrics := collectMetrics(e)
 
-	if got := len(metrics); got != 1 {
-		t.Fatalf("expected 1 metric, got %d", got)
+	if got := len(metrics); got != 2 {
+		t.Fatalf("expected 2 metrics, got %d", got)
 	}
-	d := metricToDTO(metrics[0])
-	if got := d.GetGauge().GetValue(); got != 0.0 {
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	if got := metricToDTO(upMetric).GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
+	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
 	}
 }
 
@@ -359,7 +377,7 @@ func TestCollect_PingFailure(t *testing.T) {
 	metrics := collectMetrics(e)
 
 	// Ping fails but download/upload still attempted.
-	// download + upload + up = 3 (no latency, no scrape_duration since ok=false)
+	// download + upload + up + scrape_duration = 4 (no latency)
 	upMetric := findMetricByName(metrics, "speedtest_up")
 	if upMetric == nil {
 		t.Fatal("speedtest_up metric not found")
@@ -367,6 +385,9 @@ func TestCollect_PingFailure(t *testing.T) {
 	d := metricToDTO(upMetric)
 	if got := d.GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
+	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
 	}
 }
 
@@ -392,6 +413,9 @@ func TestCollect_DownloadFailure(t *testing.T) {
 	if got := d.GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
 	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
+	}
 }
 
 func TestCollect_UploadFailure(t *testing.T) {
@@ -415,6 +439,9 @@ func TestCollect_UploadFailure(t *testing.T) {
 	d := metricToDTO(upMetric)
 	if got := d.GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0, got %f", got)
+	}
+	if findMetricByName(metrics, "speedtest_scrape_duration_seconds") == nil {
+		t.Fatal("speedtest_scrape_duration_seconds metric not found")
 	}
 }
 
