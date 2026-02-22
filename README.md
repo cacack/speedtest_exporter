@@ -29,9 +29,9 @@ Usage of speedtest_exporter
   -port string
         listening port to expose metrics on (default "9090")
   -server_fallback
-        If the serverID given is not available, should we fallback to closest available server
-  -server_id int
-        Speedtest.net server ID to run test against, -1 will pick the closest server to your location (default -1)
+        If a requested server ID is not available, fall back to the closest available server
+  -server_ids string
+        Comma-separated Speedtest.net server IDs to test against, -1 picks the closest server (default "-1")
 
 ```
 

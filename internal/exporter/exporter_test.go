@@ -141,7 +141,7 @@ func searchString(s, substr string) bool {
 }
 
 func TestDescribe(t *testing.T) {
-	e := NewWithDeps(-1, false, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{-1}, false, &mockClient{}, &mockRunner{})
 	ch := make(chan *prometheus.Desc, 10)
 	e.Describe(ch)
 	close(ch)
@@ -182,7 +182,7 @@ func TestCollect_Success(t *testing.T) {
 		servers: speedtest.Servers{newTestServer("100")},
 	}
 	runner := newTestRunner()
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	metrics := collectMetrics(e)
 
@@ -222,7 +222,7 @@ func TestCollect_FetchUserInfoError(t *testing.T) {
 	client := &mockClient{
 		userErr: errors.New("network error"),
 	}
-	e := NewWithDeps(-1, false, client, &mockRunner{})
+	e := NewWithDeps([]int{-1}, false, client, &mockRunner{})
 
 	metrics := collectMetrics(e)
 
@@ -247,7 +247,7 @@ func TestCollect_FetchServersError(t *testing.T) {
 		user:       newTestUser(),
 		serversErr: errors.New("server list unavailable"),
 	}
-	e := NewWithDeps(-1, false, client, &mockRunner{})
+	e := NewWithDeps([]int{-1}, false, client, &mockRunner{})
 
 	metrics := collectMetrics(e)
 
@@ -266,62 +266,100 @@ func TestCollect_FetchServersError(t *testing.T) {
 	}
 }
 
-func TestSelectServer_ClosestServer(t *testing.T) {
+func TestSelectServers_ClosestServer(t *testing.T) {
 	servers := speedtest.Servers{
 		newTestServer("1"),
 		newTestServer("2"),
 	}
-	e := NewWithDeps(-1, false, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{-1}, false, &mockClient{}, &mockRunner{})
 
-	server, err := e.selectServer(servers)
+	result, err := e.selectServers(servers)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if server.ID != "1" {
-		t.Errorf("expected server ID '1', got %q", server.ID)
+	if len(result) != 1 || result[0].ID != "1" {
+		t.Errorf("expected single server with ID '1', got %v", result)
 	}
 }
 
-func TestSelectServer_SpecificServer(t *testing.T) {
+func TestSelectServers_SpecificServer(t *testing.T) {
 	servers := speedtest.Servers{
 		newTestServer("100"),
 		newTestServer("200"),
 	}
-	e := NewWithDeps(200, false, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{200}, false, &mockClient{}, &mockRunner{})
 
-	server, err := e.selectServer(servers)
+	result, err := e.selectServers(servers)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if server.ID != "200" {
-		t.Errorf("expected server ID '200', got %q", server.ID)
+	if len(result) != 1 || result[0].ID != "200" {
+		t.Errorf("expected single server with ID '200', got %v", result)
 	}
 }
 
-func TestSelectServer_FallbackEnabled(t *testing.T) {
+func TestSelectServers_MultipleIDs(t *testing.T) {
+	servers := speedtest.Servers{
+		newTestServer("100"),
+		newTestServer("200"),
+		newTestServer("300"),
+	}
+	e := NewWithDeps([]int{100, 300}, false, &mockClient{}, &mockRunner{})
+
+	result, err := e.selectServers(servers)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 servers, got %d", len(result))
+	}
+	ids := map[string]bool{}
+	for _, s := range result {
+		ids[s.ID] = true
+	}
+	if !ids["100"] || !ids["300"] {
+		t.Errorf("expected servers 100 and 300, got %v", ids)
+	}
+}
+
+func TestSelectServers_FallbackEnabled(t *testing.T) {
 	// Request server 999 which doesn't exist; fallback=true should use the returned server.
 	servers := speedtest.Servers{
 		newTestServer("100"),
 	}
-	e := NewWithDeps(999, true, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{999}, true, &mockClient{}, &mockRunner{})
 
-	server, err := e.selectServer(servers)
+	result, err := e.selectServers(servers)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// FindServer returns the closest available when ID not found.
-	if server == nil {
-		t.Fatal("expected a server, got nil")
+	if len(result) == 0 {
+		t.Fatal("expected at least one server, got none")
 	}
 }
 
-func TestSelectServer_EmptyServers(t *testing.T) {
+func TestSelectServers_EmptyServers(t *testing.T) {
 	servers := speedtest.Servers{}
-	e := NewWithDeps(-1, false, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{-1}, false, &mockClient{}, &mockRunner{})
 
-	_, err := e.selectServer(servers)
+	_, err := e.selectServers(servers)
 	if err == nil {
 		t.Fatal("expected error for empty server list")
+	}
+}
+
+func TestSelectServers_MissingID_FallbackDisabled(t *testing.T) {
+	servers := speedtest.Servers{
+		newTestServer("100"),
+		newTestServer("200"),
+	}
+	// Request IDs 100 and 999; 999 is missing, fallback disabled.
+	e := NewWithDeps([]int{100, 999}, false, &mockClient{}, &mockRunner{})
+
+	_, err := e.selectServers(servers)
+	if err == nil {
+		t.Fatal("expected error when requested server ID missing and fallback disabled")
 	}
 }
 
@@ -330,7 +368,7 @@ func TestCollect_EmptyServerList(t *testing.T) {
 		user:    newTestUser(),
 		servers: speedtest.Servers{},
 	}
-	e := NewWithDeps(-1, false, client, newTestRunner())
+	e := NewWithDeps([]int{-1}, false, client, newTestRunner())
 
 	metrics := collectMetrics(e)
 
@@ -349,14 +387,14 @@ func TestCollect_EmptyServerList(t *testing.T) {
 	}
 }
 
-func TestSelectServer_FallbackDisabled(t *testing.T) {
+func TestSelectServers_FallbackDisabled(t *testing.T) {
 	// Request server 999 which doesn't exist; fallback=false should error.
 	servers := speedtest.Servers{
 		newTestServer("100"),
 	}
-	e := NewWithDeps(999, false, &mockClient{}, &mockRunner{})
+	e := NewWithDeps([]int{999}, false, &mockClient{}, &mockRunner{})
 
-	_, err := e.selectServer(servers)
+	_, err := e.selectServers(servers)
 	if err == nil {
 		t.Fatal("expected error when server not found and fallback disabled")
 	}
@@ -372,7 +410,7 @@ func TestCollect_PingFailure(t *testing.T) {
 		dlSpeed: 100000000,
 		ulSpeed: 50000000,
 	}
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	metrics := collectMetrics(e)
 
@@ -401,7 +439,7 @@ func TestCollect_DownloadFailure(t *testing.T) {
 		downloadErr: errors.New("download failed"),
 		ulSpeed:     50000000,
 	}
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	metrics := collectMetrics(e)
 
@@ -428,7 +466,7 @@ func TestCollect_UploadFailure(t *testing.T) {
 		dlSpeed:   100000000,
 		uploadErr: errors.New("upload failed"),
 	}
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	metrics := collectMetrics(e)
 
@@ -453,7 +491,7 @@ func TestCollect_MetricLabels(t *testing.T) {
 		servers: speedtest.Servers{server},
 	}
 	runner := newTestRunner()
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	// Use a registry to gather and inspect metrics with full label detail.
 	reg := prometheus.NewRegistry()
@@ -539,7 +577,7 @@ func TestCollect_ContextCancellation(t *testing.T) {
 	runner := &ctxAwareRunner{
 		mockRunner: *newTestRunner(),
 	}
-	e := NewWithDeps(-1, false, client, runner)
+	e := NewWithDeps([]int{-1}, false, client, runner)
 
 	// Create an already-cancelled context.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -562,4 +600,130 @@ func TestCollect_ContextCancellation(t *testing.T) {
 	if got := d.GetGauge().GetValue(); got != 0.0 {
 		t.Errorf("expected up=0.0 for cancelled context, got %f", got)
 	}
+}
+
+// findAllMetricsByName finds all metrics matching the given fqName.
+func findAllMetricsByName(metrics []prometheus.Metric, name string) []prometheus.Metric {
+	needle := `"` + name + `"`
+	var result []prometheus.Metric
+	for _, m := range metrics {
+		if contains(m.Desc().String(), needle) {
+			result = append(result, m)
+		}
+	}
+	return result
+}
+
+func TestCollect_MultipleServers_AllSuccess(t *testing.T) {
+	client := &mockClient{
+		user: newTestUser(),
+		servers: speedtest.Servers{
+			newTestServer("100"),
+			newTestServer("200"),
+		},
+	}
+	runner := newTestRunner()
+	e := NewWithDeps([]int{100, 200}, false, client, runner)
+
+	metrics := collectMetrics(e)
+
+	// 2 servers x 3 metrics each (latency, download, upload) + up + scrape_duration = 8
+	if got := len(metrics); got != 8 {
+		t.Fatalf("expected 8 metrics, got %d", got)
+	}
+
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	if got := metricToDTO(upMetric).GetGauge().GetValue(); got != 1.0 {
+		t.Errorf("expected up=1.0, got %f", got)
+	}
+
+	// Verify we got 2 latency, 2 download, 2 upload metrics.
+	if got := len(findAllMetricsByName(metrics, "speedtest_latency_seconds")); got != 2 {
+		t.Errorf("expected 2 latency metrics, got %d", got)
+	}
+	if got := len(findAllMetricsByName(metrics, "speedtest_download_speed_bytes_per_second")); got != 2 {
+		t.Errorf("expected 2 download metrics, got %d", got)
+	}
+	if got := len(findAllMetricsByName(metrics, "speedtest_upload_speed_bytes_per_second")); got != 2 {
+		t.Errorf("expected 2 upload metrics, got %d", got)
+	}
+}
+
+func TestCollect_MultipleServers_PartialFailure(t *testing.T) {
+	client := &mockClient{
+		user: newTestUser(),
+		servers: speedtest.Servers{
+			newTestServer("100"),
+			newTestServer("200"),
+		},
+	}
+	// Ping fails — affects both servers since it's the same runner.
+	// To simulate partial failure, use a runner that fails only for specific servers.
+	runner := &perServerMockRunner{
+		results: map[string]mockRunner{
+			"100": {
+				latency: 10 * time.Millisecond,
+				dlSpeed: 100000000,
+				ulSpeed: 50000000,
+			},
+			"200": {
+				pingErr: errors.New("ping failed"),
+			},
+		},
+	}
+	e := NewWithDeps([]int{100, 200}, false, client, runner)
+
+	metrics := collectMetrics(e)
+
+	upMetric := findMetricByName(metrics, "speedtest_up")
+	if upMetric == nil {
+		t.Fatal("speedtest_up metric not found")
+	}
+	if got := metricToDTO(upMetric).GetGauge().GetValue(); got != 0.0 {
+		t.Errorf("expected up=0.0 for partial failure, got %f", got)
+	}
+
+	// Server 100 should have all 3 metrics; server 200 should have 0 (ping failed, no latency/download/upload emitted for it... actually download/upload still attempted).
+	// With current logic: server 200 ping fails -> no latency, but download/upload still run.
+	// Server 100: latency + download + upload = 3
+	// Server 200: download + upload = 2 (no latency since ping failed)
+	// Total: 3 + 2 + up + scrape_duration = 7
+	if got := len(metrics); got != 7 {
+		t.Fatalf("expected 7 metrics, got %d", got)
+	}
+}
+
+// perServerMockRunner provides different mock results per server ID.
+type perServerMockRunner struct {
+	results map[string]mockRunner
+}
+
+func (p *perServerMockRunner) PingTest(ctx context.Context, server *speedtest.Server) error {
+	r := p.results[server.ID]
+	if r.pingErr != nil {
+		return r.pingErr
+	}
+	server.Latency = r.latency
+	return nil
+}
+
+func (p *perServerMockRunner) DownloadTest(ctx context.Context, server *speedtest.Server) error {
+	r := p.results[server.ID]
+	if r.downloadErr != nil {
+		return r.downloadErr
+	}
+	server.DLSpeed = r.dlSpeed
+	return nil
+}
+
+func (p *perServerMockRunner) UploadTest(ctx context.Context, server *speedtest.Server) error {
+	r := p.results[server.ID]
+	if r.uploadErr != nil {
+		return r.uploadErr
+	}
+	server.ULSpeed = r.ulSpeed
+	return nil
 }

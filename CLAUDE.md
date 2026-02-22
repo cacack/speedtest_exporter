@@ -26,7 +26,7 @@ make clean          # Remove build artifacts
 goreleaser release --snapshot --clean
 
 # Run locally
-./speedtest_exporter -port 9090 -server_id -1 -server_fallback=false
+./speedtest_exporter -port 9090 -server_ids "-1" -server_fallback=false
 ```
 
 ## Architecture
