@@ -96,12 +96,14 @@ type Exporter struct {
 }
 
 // New returns an initialized Exporter.
-func New(serverIDs []int, serverFallback bool) *Exporter {
+func New(serverIDs []int, serverFallback bool, maxConnections int) *Exporter {
 	return &Exporter{
 		serverIDs:      serverIDs,
 		serverFallback: serverFallback,
-		client:         &defaultClient{inner: speedtest.New()},
-		runner:         &defaultRunner{},
+		client: &defaultClient{inner: speedtest.New(
+			speedtest.WithUserConfig(&speedtest.UserConfig{MaxConnections: maxConnections}),
+		)},
+		runner: &defaultRunner{},
 	}
 }
 

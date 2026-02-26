@@ -99,6 +99,7 @@ func main() {
 	port := flag.String("port", "9090", "listening port to expose metrics on")
 	serverIDsFlag := flag.String("server_ids", "-1", "Comma-separated Speedtest.net server IDs to test against, -1 picks the closest server")
 	serverFallback := flag.Bool("server_fallback", false, "If a requested server ID is not available, fall back to the closest available server")
+	maxConnections := flag.Int("max_connections", 0, "Maximum concurrent connections for speed tests (0 = auto-detect based on CPU count)")
 	flag.Parse()
 
 	serverIDs, err := parseServerIDs(*serverIDsFlag)
@@ -107,7 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	exp := exporter.New(serverIDs, *serverFallback)
+	exp := exporter.New(serverIDs, *serverFallback, *maxConnections)
 
 	http.HandleFunc("/", rootHandler())
 	http.HandleFunc("/health", healthHandler())
@@ -135,7 +136,7 @@ func main() {
 		}
 	}()
 
-	slog.Info("server started", "port", *port, "server_ids", serverIDs)
+	slog.Info("server started", "port", *port, "server_ids", serverIDs, "max_connections", *maxConnections)
 
 	// Wait for shutdown signal.
 	<-ctx.Done()

@@ -26,6 +26,8 @@ A [Speedtest](https://www.speedtest.net) exporter for Prometheus.
 ```bash
 $ ./speedtest_exporter --help
 Usage of speedtest_exporter
+  -max_connections int
+        Maximum concurrent connections for speed tests (0 = auto-detect based on CPU count) (default 0)
   -port string
         listening port to expose metrics on (default "9090")
   -server_fallback
@@ -34,6 +36,8 @@ Usage of speedtest_exporter
         Comma-separated Speedtest.net server IDs to test against, -1 picks the closest server (default "-1")
 
 ```
+
+> **Tip:** If you have a high-bandwidth connection (500 Mbps+) and see lower-than-expected results, try setting `-max_connections 8`. The default (0) uses `runtime.NumCPU()`, which may be too low in Docker containers with limited CPU allocation.
 
 ### Binaries
 
