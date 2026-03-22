@@ -91,7 +91,7 @@ func (d *defaultClient) FetchServers(ctx context.Context) (speedtest.Servers, er
 type Exporter struct {
 	serverIDs      []int
 	serverFallback bool
-	client         SpeedtestClient
+	clientFactory  func() SpeedtestClient
 	runner         ServerRunner
 }
 
@@ -100,9 +100,11 @@ func New(serverIDs []int, serverFallback bool, maxConnections int) *Exporter {
 	return &Exporter{
 		serverIDs:      serverIDs,
 		serverFallback: serverFallback,
-		client: &defaultClient{inner: speedtest.New(
-			speedtest.WithUserConfig(&speedtest.UserConfig{MaxConnections: maxConnections}),
-		)},
+		clientFactory: func() SpeedtestClient {
+			return &defaultClient{inner: speedtest.New(
+				speedtest.WithUserConfig(&speedtest.UserConfig{MaxConnections: maxConnections}),
+			)}
+		},
 		runner: &defaultRunner{},
 	}
 }
@@ -112,7 +114,7 @@ func NewWithDeps(serverIDs []int, serverFallback bool, client SpeedtestClient, r
 	return &Exporter{
 		serverIDs:      serverIDs,
 		serverFallback: serverFallback,
-		client:         client,
+		clientFactory:  func() SpeedtestClient { return client },
 		runner:         runner,
 	}
 }
@@ -150,13 +152,14 @@ func (e *Exporter) CollectWithContext(ctx context.Context, ch chan<- prometheus.
 }
 
 func (e *Exporter) speedtest(ctx context.Context, ch chan<- prometheus.Metric) bool {
-	user, err := e.client.FetchUserInfo(ctx)
+	client := e.clientFactory()
+	user, err := client.FetchUserInfo(ctx)
 	if err != nil {
 		slog.Error("could not fetch user information", "error", err)
 		return false
 	}
 
-	servers, err := e.client.FetchServers(ctx)
+	servers, err := client.FetchServers(ctx)
 	if err != nil {
 		slog.Error("could not fetch server list", "error", err)
 		return false
